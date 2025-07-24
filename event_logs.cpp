@@ -128,32 +128,92 @@ void c_event_logs::render_logs()
 	constexpr auto font_size = 15.f;
 	auto render_font = RENDER->fonts.eventlog;
 	auto time = HACKS->system_time();
+	float anim_speed = 0.18f; // seconds for slide
 
-	float offset{};
-	float x = 10.f, y = 8.f;
-	for (int i = 0; i < event_logs.size(); ++i )
+
+	float screen_w = RENDER->screen.x;
+	float screen_h = RENDER->screen.y;
+	float y_base = screen_h - 140.f;
+	float x_center = screen_w * 0.5f;
+
+
+	auto& bold_font = RENDER->fonts.bold;
+
+
+	while (this->animated_logs.size() > this->event_logs.size())
+		this->animated_logs.erase(this->animated_logs.begin());
+	for (size_t i = 0; i < this->event_logs.size(); ++i) {
+		if (i >= this->animated_logs.size())
+			this->animated_logs.push_back({ this->event_logs[i], 0.f });
+		else
+			this->animated_logs[i].log = this->event_logs[i];
+	}
+
+	if (this->animated_logs.size() > 4)
+		this->animated_logs.erase(this->animated_logs.begin(), this->animated_logs.end() - 4);
+
+
+	float offset = 0.f;
+	int logs_shown = 0;
+	for (int i = 0; i < (int)this->animated_logs.size(); ++i)
 	{
-		auto event_log = &event_logs[i];
+		auto& anim_log = this->animated_logs[i];
+		auto* event_log = &anim_log.log;
+
+		anim_log.anim_time = 1.f;
 
 		auto time_left = 1.f - std::clamp((time - event_log->life_time) / 5.f, 0.f, 1.f);
 		if (time_left <= 0.5f)
 		{
 			float f = std::clamp(time_left, 0.0f, .5f) / .5f;
-
 			event_log->clr.a() = ((std::uint8_t)(f * 255.0f));
-
-			if (i == 0 && f < 0.2f)
-				y -= font_size * (1.0f - f / 0.2f);
-
-			if (time_left <= 0.f) 
+			if (time_left <= 0.f)
 			{
-				event_logs.erase(event_logs.begin() + i);
+				this->event_logs.erase(this->event_logs.begin() + i);
+				this->animated_logs.erase(this->animated_logs.begin() + i);
+				--i;
 				continue;
 			}
 		}
 
-		RENDER->text(x, y, event_log->clr, FONT_DROPSHADOW, &render_font, event_log->message);
+		std::string prefix = CXOR("Pastahook | ");
 
-		y += font_size;
+		std::string msg = event_log->message;
+		ImVec2 prefix_size = RENDER->get_text_size(&bold_font, prefix);
+		ImVec2 msg_size = RENDER->get_text_size(&bold_font, msg);
+		float full_w = prefix_size.x + msg_size.x;
+		float text_h = std::max(prefix_size.y, msg_size.y);
+		float x = x_center - full_w * 0.5f;
+		float y = y_base + offset;
+		float padding_x = 16.f;
+		float padding_y = 6.f;
+		float bg_x = x - padding_x;
+		float bg_y = y - padding_y;
+		float bg_w = full_w + padding_x * 2.f;
+		float bg_h = text_h + padding_y * 2.f;
+		RENDER->filled_rect(bg_x, bg_y, bg_w, bg_h, c_color(24, 24, 28, 200), 8.f, ImDrawCornerFlags_All);
+
+		float rainbow_speed = 0.6f;
+		float hue = std::fmod((time * rainbow_speed + logs_shown * 0.18f), 1.0f);
+		float r, g, b;
+		float ihue = std::floor(hue * 6.0f);
+		float f = hue * 6.0f - ihue;
+		float q = 1 - f;
+		switch (static_cast<int>(ihue) % 6) {
+		case 0: r = 1, g = f, b = 0; break;
+		case 1: r = q, g = 1, b = 0; break;
+		case 2: r = 0, g = 1, b = f; break;
+		case 3: r = 0, g = q, b = 1; break;
+		case 4: r = f, g = 0, b = 1; break;
+		case 5: r = 1, g = 0, b = q; break;
+		}
+		c_color rainbow_col(int(r * 255), int(g * 255), int(b * 255), 255);
+
+		RENDER->text(x, y, rainbow_col, memory::bits_t(FONT_DROPSHADOW), &bold_font, prefix);
+
+		RENDER->text(x + prefix_size.x, y, c_color(255, 255, 255, 255), memory::bits_t(FONT_DROPSHADOW), &bold_font, msg);
+
+		offset += text_h + 6.f + 12.f;
+		++logs_shown;
 	}
 }

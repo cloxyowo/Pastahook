@@ -7,13 +7,19 @@ struct event_log_t
 	std::string message{};
 };
 
-class c_event_logs 
+struct animated_log_t {
+	event_log_t log;
+	float anim_time = 0.f;
+};
+
+class c_event_logs
 {
 private:
 	bool log_value = true;
 	bool set_console = true;
 
 	std::vector<event_log_t> event_logs{};
+	std::vector<animated_log_t> animated_logs{};
 
 	void on_item_purchase(c_game_event* event);
 	void on_bomb_plant(c_game_event* event);
@@ -23,7 +29,7 @@ public:
 	INLINE void push_message(const std::string& message, const c_color& color = { 255, 255, 255, 255 }, bool debug = false)
 	{
 		auto clr = g_cfg.misc.ui_color.base();
-		HACKS->cvar->print_console_color(clr, CXOR("[Pastahook] "));
+		HACKS->cvar->print_console_color(clr, CXOR("droxyhook | "));
 
 		if (!debug)
 		{

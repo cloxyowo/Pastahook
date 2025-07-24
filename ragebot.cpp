@@ -861,85 +861,60 @@ bool start_fakelag_fix(c_cs_player* player, anims_t* anims)
 
 void pre_cache_centers(int damage, std::vector<int>& hitboxes, vec3_t& predicted_eye_pos, rage_player_t* rage)
 {
-	if (!rage || !rage->player)
-		return;
-
 	rage->reset_hitscan();
-
 	auto anim = ANIMFIX->get_local_anims();
+
 	auto lagcomp = ANIMFIX->get_anims(rage->player->index());
 	if (!lagcomp || lagcomp->records.empty())
 		return;
 
 	rage->restore.store(rage->player);
 
-	auto get_overall_damage = [&](anim_record_t* record) -> int
-		{
-			if (!record)
-				return 0;
-
-			rage->points_to_scan.clear();
-			rage->points_to_scan.reserve(MAX_SCANNED_POINTS);
-
-			auto points = get_hitbox_points(damage, hitboxes, predicted_eye_pos, predicted_eye_pos, rage, record, true);
-
-			// fallback to eye_pos if no results
-			if (points.empty())
-				points = get_hitbox_points(damage, hitboxes, anim->eye_pos, predicted_eye_pos, rage, record, true);
-
-			int total_damage = 0;
-			for (const auto& point : points)
-			{
-				rage->points_to_scan.push_back(point);
-				total_damage += point.damage;
-			}
-
-			return total_damage;
-		};
-
-	anim_record_t* best = nullptr;
+	std::vector<anim_record_t*> valid_records;
 
 	if (start_fakelag_fix(rage->player, lagcomp))
 	{
-		best = &lagcomp->records.front();
-		get_overall_damage(best); // fk the result, at least we will have the record
+		valid_records.push_back(&lagcomp->records.front());
 	}
 	else
 	{
-		anim_record_t* first = nullptr;
-		anim_record_t* last = nullptr;
-
-		for (auto it = lagcomp->records.begin(); it != lagcomp->records.end(); ++it)
+		for (auto& record : lagcomp->records)
 		{
-			if (it->valid_lc)
+			if (record.valid_lc)
 			{
-				if (!first) first = &*it;
-				last = &*it;
+				valid_records.push_back(&record);
+			}
+		}
+	}
+
+	for (auto current_record : valid_records)
+	{
+		rage->points_to_scan.clear();
+		rage->points_to_scan.reserve(MAX_SCANNED_POINTS);
+
+		auto predicted_hitbox_points = get_hitbox_points(damage, hitboxes, predicted_eye_pos, predicted_eye_pos, rage, current_record, true);
+		if (predicted_hitbox_points.empty())
+		{
+			auto hitbox_points = get_hitbox_points(damage, hitboxes, anim->eye_pos, predicted_eye_pos, rage, current_record, true);
+			for (auto& point : hitbox_points)
+			{
+				rage->points_to_scan.emplace_back(point);
+			}
+		}
+		else
+		{
+			for (auto& point : predicted_hitbox_points)
+			{
+				rage->points_to_scan.emplace_back(point);
 			}
 		}
 
-		if (first && last)
-		{
-			int first_dmg = get_overall_damage(first);
-			int last_dmg = get_overall_damage(last);
-			best = (last_dmg > first_dmg) ? last : first;
-		}
-		else if (first)
-		{
-			get_overall_damage(first);
-			best = first;
-		}
-	}
-
-	rage->restore.restore(rage->player);
-
-	if (best)
-	{
 		rage->start_scans = true;
-		rage->hitscan_record = best;
+		rage->hitscan_record = current_record;
+
+		rage->restore.restore(rage->player);
 	}
 }
-
 
 void get_result(bool& out, const vec3_t& start, const vec3_t& end, rage_player_t* rage, int hitbox, matrix3x4_t* matrix, anim_record_t* record)
 {

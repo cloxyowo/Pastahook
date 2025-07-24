@@ -4,83 +4,66 @@
 
 namespace game_movement
 {
-	// yes it's pasteed..
 	INLINE void accelerate(c_user_cmd& user_cmd, const vec3_t& wishdir, const float wishspeed, vec3_t& velocity, float acceleration)
 	{
 		static auto sv_accelerate_use_weapon_speed = HACKS->convars.sv_accelerate_use_weapon_speed;
 
 		const auto cur_speed = velocity.dot(wishdir);
-
 		const auto add_speed = wishspeed - cur_speed;
+
 		if (add_speed <= 0.f)
 			return;
 
-		const auto v57 = std::max(cur_speed, 0.f);
 		const auto ducking = user_cmd.buttons.has(IN_DUCK) || HACKS->local->ducking() || HACKS->local->flags().has(FL_DUCKING);
+		const auto sprinting = user_cmd.buttons.has(IN_SPEED);
 
-		auto v20 = true;
-		if (ducking || !(user_cmd.buttons.has(IN_SPEED)))
-			v20 = false;
-
+		auto max_speed = HACKS->local->is_scoped() ? HACKS->weapon_info->max_speed_alt : HACKS->weapon_info->max_speed;
 		auto finalwishspeed = std::max(wishspeed, 250.f);
 		auto abs_finalwishspeed = finalwishspeed;
 
-		auto max_speed = HACKS->local->is_scoped() ? HACKS->weapon_info->max_speed_alt : HACKS->weapon_info->max_speed;
-
-		bool slow_down{};
 		if (HACKS->weapon && sv_accelerate_use_weapon_speed->get_bool())
 		{
 			const auto item_index = static_cast<std::uint16_t>(HACKS->weapon->item_definition_index());
-			if (HACKS->weapon->zoom_level() > 0 && (item_index == 11 || item_index == 38 || item_index == 9 || item_index == 8 || item_index == 39 || item_index == 40))
-				slow_down = (max_speed * 0.52f) < 110.f;
+			const bool is_sniper = (item_index == 11 || item_index == 38 || item_index == 9 || item_index == 8 || item_index == 39 || item_index == 40);
+			const bool slow_down = is_sniper && HACKS->weapon->zoom_level() > 0 && (max_speed * 0.52f) < 110.f;
 
 			const auto modifier = std::min(1.f, max_speed / 250.f);
 			abs_finalwishspeed *= modifier;
-			if ((!ducking && !v20) || slow_down)
+			if ((!ducking && !sprinting) || slow_down)
 				finalwishspeed *= modifier;
+
+			if (slow_down)
+				acceleration *= 0.52f;
 		}
 
 		if (ducking)
 		{
-			if (!slow_down)
-				finalwishspeed *= 0.34f;
-
+			finalwishspeed *= 0.34f;
 			abs_finalwishspeed *= 0.34f;
 		}
-
-		if (v20)
+		else if (sprinting)
 		{
-			if (!slow_down)
-				finalwishspeed *= 0.52f;
-
+			finalwishspeed *= 0.52f;
 			abs_finalwishspeed *= 0.52f;
 
-			const auto abs_finalwishspeed_minus5 = abs_finalwishspeed - 5.f;
-			if (v57 < abs_finalwishspeed_minus5)
+			const auto threshold = abs_finalwishspeed - 5.f;
+			if (cur_speed < threshold)
 			{
-				const auto v30 =
-					std::max(v57 - abs_finalwishspeed_minus5, 0.f)
-					/ std::max(abs_finalwishspeed - abs_finalwishspeed_minus5, 0.f);
-
-				const auto v27 = 1.f - v30;
-				if (v27 >= 0.f)
-					acceleration = std::min(v27, 1.f) * acceleration;
-				else
-					acceleration = 0.f;
+				const auto factor = std::max(cur_speed - threshold, 0.f) / std::max(abs_finalwishspeed - threshold, 0.f);
+				acceleration *= std::min(std::max(1.f - factor, 0.f), 1.f);
 			}
 		}
 
-		const auto v33 = std::min(
+		const auto accelerate_speed = std::min(
 			add_speed,
-			((HACKS->global_vars->interval_per_tick * acceleration) * finalwishspeed)
-			* HACKS->local->surface_friction()
+			(HACKS->global_vars->interval_per_tick * acceleration * finalwishspeed) * HACKS->local->surface_friction()
 		);
 
-		velocity += wishdir * v33;
+		velocity += wishdir * accelerate_speed;
 
-		const auto len = velocity.length();
-		if (len && len > max_speed)
-			velocity *= max_speed / len;
+		const auto speed = velocity.length();
+		if (speed > max_speed)
+			velocity *= max_speed / speed;
 	}
 
 	INLINE void walk_move(c_user_cmd& user_cmd, vec3_t& move, vec3_t& fwd, vec3_t& right, vec3_t& velocity)
@@ -182,53 +165,29 @@ namespace game_movement
 		user_cmd.upmove = cmd_movement.z;
 	}
 
-	INLINE void extrapolate(c_cs_player* player, vec3_t& origin, vec3_t& velocity, memory::bits_t& flags, bool on_ground)
+	void game_movement::extrapolate(c_cs_player* player, vec3_t& origin, vec3_t& velocity, memory::bits_t& flags, bool on_ground)
 	{
-		static auto sv_gravity = HACKS->convars.sv_gravity;
-		static auto sv_jump_impulse = HACKS->convars.sv_jump_impulse;
+		if (!player || player->life_state() != 0)
+			return;
 
-		if (!(flags.has(FL_ONGROUND)))
-			velocity.z -= TICKS_TO_TIME(sv_gravity->get_float());
-		else if (player->flags().has(FL_ONGROUND) && !on_ground)
-			velocity.z = sv_jump_impulse->get_float();
+		constexpr int ticks_to_predict = 5;
 
-		const auto src = origin;
-		auto end = src + velocity * HACKS->global_vars->interval_per_tick;
-
-		c_game_trace t;
-		c_trace_filter filter;
-		filter.skip = player;
-
-		HACKS->engine_trace->trace_ray(ray_t(src, end, player->bb_mins(), player->bb_maxs()), MASK_PLAYERSOLID, &filter, &t);
-
-		if (t.fraction != 1.f)
+		for (int i = 0; i < ticks_to_predict; ++i)
 		{
-			for (auto i = 0; i < 2; i++)
-			{
-				velocity -= t.plane.normal * velocity.dot(t.plane.normal);
-
-				const auto dot = velocity.dot(t.plane.normal);
-				if (dot < 0.f)
-					velocity -= vec3_t{ dot* t.plane.normal.x, dot* t.plane.normal.y, dot* t.plane.normal.z };
-
-				end = t.end + velocity * TICKS_TO_TIME(1.f - t.fraction);
-
-				HACKS->engine_trace->trace_ray(ray_t(t.end, end, player->bb_mins(), player->bb_maxs()), MASK_PLAYERSOLID, &filter, &t);
-
-				if (t.fraction == 1.f)
-					break;
-			}
+			extrapolate_one_tick(player, origin, velocity, flags, on_ground);
 		}
+	}
 
-		origin = end = t.end;
-		end.z -= 2.f;
+	void game_movement::extrapolate_one_tick(c_cs_player* player, vec3_t& origin, vec3_t& velocity, memory::bits_t& flags, bool on_ground)
+	{
+		constexpr float gravity = 800.f;
+		const float interval = HACKS->global_vars->interval_per_tick;
 
-		HACKS->engine_trace->trace_ray(ray_t(origin, end, player->bb_mins(), player->bb_maxs()), MASK_PLAYERSOLID, &filter, &t);
+		origin += velocity * interval;
 
-		flags.remove(FL_ONGROUND);
+		if (!flags.has(FL_ONGROUND))
 
-		if (t.did_hit() && t.plane.normal.z > .7f)
-			flags.force(FL_ONGROUND);
+			velocity.z -= gravity * interval;
 	}
 
 	INLINE memory::bits_t get_fake_jump_buttons()

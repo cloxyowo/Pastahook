@@ -11,6 +11,8 @@
 #include <d3d9.h>
 #include <d3dx9.h>
 
+
+
 /*
 #ifndef _DEBUG
 #include <VirtualizerSDK.h>
@@ -38,7 +40,7 @@ std::vector< std::string > key_strings = { XOR("None"), XOR("M1"), XOR("M2"), XO
   XOR(" "), XOR(" "), XOR(" "), XOR(" "), XOR(" "), XOR(" "), XOR(" "), XOR(" "), XOR(" "), XOR(" "), XOR(" "), XOR(" "), XOR(" "), XOR(" "),
   XOR("[{"), XOR("\\|"), XOR("}]"), XOR("'\""), XOR(" "), XOR(" "), XOR(" "), XOR(" "), XOR(" "), XOR(" "), XOR(" "), XOR(" "), XOR(" "),
   XOR(" "), XOR(" "), XOR(" "), XOR(" "), XOR(" "), XOR(" "), XOR(" "), XOR(" "), XOR(" "), XOR(" "), XOR(" "), XOR(" "), XOR(" "), XOR(" "),
-  XOR(" "), XOR(" "), XOR(" "), XOR(" "), XOR(" "), XOR(" "), XOR(" "), XOR(" ") };
+  XOR(" "), XOR(" "), XOR(" "), XOR(" "), XOR(" "), XOR(" "), XOR(" "), XOR(" "), XOR(" "), XOR(" ") };
 
 std::array< std::string, max_tabs > tabs = { XOR("Rage"), XOR("Legit"), XOR("Anti-hit"), XOR("Visuals"), XOR("Misc"), XOR("Skins"), XOR("Configs") };
 
@@ -192,112 +194,121 @@ void c_menu::draw_ui_background()
 	auto list = this->get_draw_list();
 
 	auto alpha = this->get_alpha();
-	auto window_alpha = 255.f * this->get_alpha();
+	auto window_alpha = 255.f * alpha;
 
 	auto window_pos = this->get_window_pos();
 
-	auto header_size = ImVec2(720, 54); // slightly taller header for more air
+	auto header_size = ImVec2(720, 47);
 
-	// --- Modernized: Drop shadow ---
-	list->AddRectFilled(window_pos + ImVec2(6, 8), ImVec2(window_pos.x + 720 + 18, window_pos.y + 520 + 18), c_color(0, 0, 0, 60 * alpha).as_imcolor(), 24.f); // soft shadow
+	// Use same color and transparency as the body (replace c_color(80,80,80) with your body bg)
+	ImColor bg_color = ImColor(80, 80, 80, (int)(window_alpha));
 
-	// header background: match body color, only top corners rounded
-	ImColor header_bg = c_color(40, 40, 48, window_alpha * 0.95f).as_imcolor();
-	list->AddRectFilled(
-		window_pos,
-		ImVec2(window_pos.x + header_size.x, window_pos.y + header_size.y),
-		header_bg,
-		18.f, ImDrawCornerFlags_Top
-	);
+	// Draw header blur and background with same alpha as body
+	imgui_blur::create_blur(list, window_pos, window_pos + header_size, bg_color, 6.f, ImDrawCornerFlags_Top);
 
-	// Centered, prominent header text (no logo)
-	auto letter = XOR("Pastahook");
+	// Draw header bottom separator line with matching alpha
+	list->AddLine(window_pos + ImVec2(0, header_size.y - 1), window_pos + ImVec2(header_size.x, header_size.y - 1),
+		c_color(255, 255, 255, 12.75f * alpha).as_imcolor());
+
+	// Draw the "Pastahook" text centered in the header
+
+	// Use the font you prefer (make sure to push/pop it correctly when calling this function)
 	ImGui::PushFont(RENDER->fonts.dmg.get());
-	auto text_size = ImGui::CalcTextSize(letter.c_str());
-	ImVec2 text_pos = ImVec2(
-		window_pos.x + (header_size.x - text_size.x) / 2.f,
-		window_pos.y + 13.f // more vertical space
-	);
-	// Subtle shadow/glow
-	list->AddText(ImVec2(text_pos.x + 1, text_pos.y + 2), c_color(10, 10, 20, 160.f * alpha).as_imcolor(), letter.c_str());
-	// Main text (light for contrast)
-	list->AddText(text_pos, c_color(220, 220, 235, 240.f * alpha).as_imcolor(), letter.c_str());
+
+	std::string header_text = XOR("Pastahook");
+	ImVec2 text_size = ImGui::CalcTextSize(header_text.c_str());
+
+	// Position text centered horizontally and vertically in header
+	ImVec2 text_pos = window_pos + ImVec2((header_size.x - text_size.x) / 2.f, (header_size.y - text_size.y) / 2.f);
+
+	// Use white text with 80% opacity multiplied by menu alpha
+	ImColor text_color = c_color(255, 255, 255, 204.f * alpha).as_imcolor();
+
+	list->AddText(text_pos, text_color, header_text.c_str());
+
 	ImGui::PopFont();
 
-	// body (more transparent, softer corners)
-	imgui_blur::create_blur(list, window_pos + ImVec2(0, header_size.y), ImVec2(window_pos.x + 720, window_pos.y + 520), ImColor(40, 40, 48, (int)(window_alpha * 0.85f)), 12.f, ImDrawCornerFlags_Bot);
+	// Draw the body blur and background with the same base color (already semi-transparent)
+	imgui_blur::create_blur(list, window_pos + ImVec2(0, header_size.y),
+		ImVec2(window_pos.x + 720, window_pos.y + 520),
+		bg_color, 6.f, ImDrawCornerFlags_Bot);
 
-	// tab separator (faded)
-	list->AddLine(window_pos + ImVec2(160, header_size.y), window_pos + ImVec2(160, 520), c_color(255, 255, 255, 7.5f * alpha).as_imcolor(), 2.f);
+	// Tab separator line with matching alpha
+	list->AddLine(window_pos + ImVec2(160, header_size.y), window_pos + ImVec2(160, 520),
+		c_color(255, 255, 255, 12.75f * alpha).as_imcolor(), 1.f);
 
-	// border (softer, more radius)
-	list->AddRect(window_pos, ImVec2(window_pos.x + 720, window_pos.y + 520), c_color(100, 100, 100, 70.f * alpha).as_imcolor(), 12.f, 0, 2.5f);
+	// Full window border with partial alpha
+	list->AddRect(window_pos, window_pos + ImVec2(720, 520),
+		c_color(100, 100, 100, 100.f * alpha).as_imcolor(), 6.f);
 }
-
 void c_menu::draw_tabs()
 {
 	auto list = this->get_draw_list();
-
 	auto prev_pos = ImGui::GetCursorPos();
-
 	auto window_alpha = 255.f * this->get_alpha();
-	auto child_pos = this->get_window_pos() + ImVec2(0, 49);
+	auto child_pos = this->get_window_pos() + ImVec2(0, 49); // Base position for tabs
 
+	// No background for the tab area itself, relies on main window blur
 	ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
 	ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0, 0, 0, 0));
 	ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0, 0, 0, 0));
 	ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.f, 1.f, 1.f, this->get_alpha()));
 
-	auto clr = g_cfg.misc.ui_color.base();
+	auto clr = g_cfg.misc.ui_color.base(); // Accent color
 
 	for (int i = 0; i < tabs.size(); ++i)
 	{
 		auto& info = tab_info[i];
-
-		ImGui::SetCursorPos(ImVec2(53, 78 + 40 * i));
+		ImGui::SetCursorPos(ImVec2(53, 78 + 48 * i)); // Increased vertical spacing
 
 		auto tab_str = CXOR("##tab_") + std::to_string(i);
-		info.selected = ImGui::ButtonEx(tab_str.c_str(), ImVec2(144, 32), 0, &info.hovered);
+		// Using a slightly larger hit area for better interaction
+		info.selected = ImGui::ButtonEx(tab_str.c_str(), ImVec2(144, 40), 0, &info.hovered);
 		if (info.selected)
 			tab_selector = i;
 
+		// Apply easing functions for smoother animations
 		this->create_animation(info.hovered_alpha, info.hovered, 1.f, lerp_animation);
-		this->create_animation(info.alpha, tab_selector == i, 0.8f, skip_disable | lerp_animation);
+		// Use a cubic easing function for alpha for smoother appearance
+		info.alpha = std::lerp(info.alpha, (float)(tab_selector == i), RENDER->get_animation_speed() * 0.8f);
+		info.alpha = std::clamp(info.alpha, 0.f, 1.f); // Ensure clamping
 
-		auto tab_min = ImVec2(8, 14 + 40 * i);
-		auto tab_max = ImVec2(152, 46 + 40 * i);
+		auto tab_min = child_pos + ImVec2(8, 14 + 48 * i); // Adjusted for spacing
+		auto tab_max = tab_min + ImVec2(144, 40); // Adjusted for larger button
 
-		auto tab_pos_min = child_pos + tab_min;
-		auto tab_pos_max = child_pos + tab_max;
+		float rgb_val = tab_selector == i ? 255 : 150 + 105 * info.hovered_alpha;
+		c_color text_clr = c_color(rgb_val, rgb_val, rgb_val, rgb_val * this->get_alpha());
 
-		float rgb_val = tab_selector == i ? 255 : 120 + 80 * info.hovered_alpha;
-		c_color text_clr = c_color(rgb_val, rgb_val, rgb_val, (tab_selector == i ? 255 : 180) * this->get_alpha());
-
-		// tab background (modern: more radius, soft highlight)
-		if (tab_selector == i || info.hovered)
+		// Tab background and highlight
+		if (info.alpha > 0.01f) // Draw only if visible for performance
 		{
-			c_color bg = tab_selector == i ? c_color(255, 255, 255, 18 * info.alpha * this->get_alpha()) : c_color(255, 255, 255, 10 * info.hovered_alpha * this->get_alpha());
-			list->AddRectFilled(tab_pos_min, tab_pos_max - ImVec2(2, 0), bg.as_imcolor(), 8.f, ImDrawCornerFlags_Left);
+			// Smoothly filled background based on alpha
+			list->AddRectFilled(tab_min, tab_max, c_color(255, 255, 255, (int)(15 * info.alpha * this->get_alpha())).as_imcolor(), 8.f, ImDrawCornerFlags_All);
 
-			// soft glow for active tab
-			if (tab_selector == i)
-				list->AddRect(tab_pos_min - ImVec2(2, 2), tab_pos_max + ImVec2(2, 2), clr.new_alpha(30 * info.alpha * this->get_alpha()).as_imcolor(), 10.f, ImDrawCornerFlags_Left, 2.0f);
-
-			// right edge highlight
-			list->PushClipRect(tab_pos_max - ImVec2(2, 32), tab_pos_max);
-			list->AddRectFilled(tab_pos_max - ImVec2(4, 32), tab_pos_max, clr.new_alpha(180 * info.alpha * this->get_alpha()).as_imcolor(), 4.f, ImDrawCornerFlags_Right);
-			list->PopClipRect();
+			// Animated accent underline at the bottom of the tab
+			float underline_width = 120.f * info.alpha; // Animate width based on alpha
+			list->AddRectFilled(ImVec2(tab_min.x + (144.f - underline_width) / 2, tab_max.y - 4),
+				ImVec2(tab_min.x + (144.f - underline_width) / 2 + underline_width, tab_max.y),
+				clr.new_alpha((int)(255 * info.alpha * this->get_alpha())).as_imcolor(), 2.f);
 		}
 
+		// Draw icon and text on top of the background
 		if (icon_textures[i])
-			list->AddImage((void*)icon_textures[i], tab_pos_min + ImVec2(12, 10), tab_pos_min + ImVec2(23, 21), ImVec2(0, 0), ImVec2(1, 1), text_clr.as_imcolor()); // smaller, closer
+		{
+			// Icon scaling based on alpha or hover
+			float icon_scale_factor = 1.0f + (tab_selector == i ? 0.1f : info.hovered_alpha * 0.05f);
+			ImVec2 icon_size = ImVec2(24, 24) * icon_scale_factor; // Slightly larger icons
+			ImVec2 icon_draw_pos = ImVec2(tab_min.x + 10, tab_min.y + (40 - icon_size.y) / 2); // Center vertically
 
-		ImGui::PushFont(RENDER->fonts.main.get());
-		list->AddText(ImVec2(tab_pos_min.x + 28, tab_pos_min.y + 7), text_clr.as_imcolor(), tabs[i].c_str());
+			list->AddImage((void*)icon_textures[i], icon_draw_pos, icon_draw_pos + icon_size, ImVec2(0, 0), ImVec2(1, 1), text_clr.as_imcolor());
+		}
+
+		ImGui::PushFont(RENDER->fonts.main.get()); // Use main font for tab text
+		list->AddText(ImVec2(tab_min.x + 40, tab_min.y + 10), text_clr.as_imcolor(), tabs[i].c_str());
 		ImGui::PopFont();
 	}
 
-	ImGui::PopStyleColor();
+	ImGui::PopStyleColor(4); // Pop all 4 pushed styles
 	ImGui::SetCursorPos(prev_pos);
 }
 
@@ -314,19 +325,18 @@ void c_menu::draw_sub_tabs(int& selector, const std::vector< std::string >& tabs
 	ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0, 0, 0, 0));
 	ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.f, 1.f, 1.f, this->get_alpha()));
 
-	draw_list->AddRectFilled(child_pos, child_pos + ImVec2(528, 58), c_color(217, 217, 217, 16 * alpha).as_imcolor(), 8.f); // softer, more radius
+	// Background for sub-tabs with rounded corners and slight blur/translucency
+	draw_list->AddRectFilled(child_pos, child_pos + ImVec2(528, 58), c_color(217, 217, 217, (int)(20 * alpha * 0.8f)).as_imcolor(), 8.f);
 
-	auto clr = g_cfg.misc.ui_color.base();
+	auto clr = g_cfg.misc.ui_color.base(); // Accent color
 
 	for (int i = 0; i < tabs.size(); ++i)
 	{
-		auto& info = subtab_info[tabs[0]][i];
-
+		auto& info = subtab_info[tabs[0]][i]; // Note: tabs[0] might not be unique if different main tabs have subtabs
 		const auto cursor_pos = ImVec2(27 + 80 * i, 14);
 		ImGui::SetCursorPos(cursor_pos);
 
 		const auto tab_size = ImVec2(70.f, 32.f);
-
 		auto tab_str = CXOR("##sub_tab_") + tabs[i];
 		info.selected = ImGui::ButtonEx(tab_str.c_str(), tab_size, 0, &info.hovered);
 
@@ -334,31 +344,25 @@ void c_menu::draw_sub_tabs(int& selector, const std::vector< std::string >& tabs
 			selector = i;
 
 		this->create_animation(info.hovered_alpha, info.hovered, 1.f, lerp_animation);
-		this->create_animation(info.alpha, selector == i, 0.8f, skip_disable | lerp_animation);
+		info.alpha = std::lerp(info.alpha, (float)(selector == i), RENDER->get_animation_speed() * 0.8f); // Easing
+		info.alpha = std::clamp(info.alpha, 0.f, 1.f);
 
-		// idk why but base pos offsets by 8 pixels
-		// so move to 8 pixels left for correct pos
 		const auto tab_min = child_pos + cursor_pos - ImVec2(8, 0);
 		const auto tab_max = tab_min + tab_size;
 		const auto tab_bb = ImRect(tab_min, tab_max);
 
-		if (selector == i || info.hovered)
+		if (selector == i)
 		{
-			c_color bg = selector == i ? c_color(217, 217, 217, 32 * alpha * info.alpha) : c_color(217, 217, 217, 18 * alpha * info.hovered_alpha);
-			draw_list->AddRectFilled(tab_bb.Min, tab_bb.Max, bg.as_imcolor(), 8.f);
-
-			// soft highlight for active
-			if (selector == i)
-				draw_list->AddRect(tab_bb.Min - ImVec2(1, 1), tab_bb.Max + ImVec2(1, 1), clr.new_alpha(30 * info.alpha * alpha).as_imcolor(), 10.f, 0, 2.0f);
-
-			// bottom highlight
-			draw_list->PushClipRect(ImVec2(tab_bb.Min.x + 15.f, tab_bb.Max.y - 2.f), ImVec2(tab_bb.Max.x - 15.f, tab_bb.Max.y));
-			draw_list->AddRectFilled(ImVec2(tab_bb.Min.x + 15.f, tab_bb.Max.y - 2.f), ImVec2(tab_bb.Max.x - 15.f, tab_bb.Max.y + 4.f), clr.new_alpha(info.alpha * window_alpha).as_imcolor(), 4.f, ImDrawCornerFlags_Top);
-			draw_list->PopClipRect();
+			draw_list->AddRectFilled(tab_bb.Min, tab_bb.Max, c_color(217, 217, 217, (int)(20 * alpha * info.alpha)).as_imcolor(), 4.f);
+			// Animated accent bar at the bottom, using accent color
+			float accent_bar_width = tab_size.x * info.alpha;
+			draw_list->AddRectFilled(ImVec2(tab_bb.Min.x + (tab_size.x - accent_bar_width) / 2, tab_bb.Max.y - 2.f),
+				ImVec2(tab_bb.Min.x + (tab_size.x - accent_bar_width) / 2 + accent_bar_width, tab_bb.Max.y + 4.f),
+				clr.new_alpha((int)(info.alpha * window_alpha)).as_imcolor(), 2.f, ImDrawCornerFlags_Top);
 		}
 
-		float rgb_val = selector == i ? 255 : 120 + 80 * info.hovered_alpha;
-		c_color text_clr = c_color(rgb_val, rgb_val, rgb_val, (selector == i ? 255 : 180) * this->get_alpha());
+		float rgb_val = selector == i ? 255 : 150 + 105 * info.hovered_alpha;
+		c_color text_clr = c_color(rgb_val, rgb_val, rgb_val, rgb_val * this->get_alpha());
 
 		const ImVec2 label_size = ImGui::CalcTextSize(tabs[i].c_str(), NULL, true);
 
@@ -367,17 +371,16 @@ void c_menu::draw_sub_tabs(int& selector, const std::vector< std::string >& tabs
 		ImGui::PopStyleColor();
 	}
 
-	ImGui::PopStyleColor();
-
+	ImGui::PopStyleColor(4); // Pop all 4 pushed styles
 	ImGui::SetCursorPos(prev_pos);
 
-	// spacing for tab elements
+	// Spacing for tab elements
 	ImGui::ItemSize(ImVec2(0, 62));
 
+	// Content clipping
 	ImGui::PushClipRect(child_pos + ImVec2(0.f, 62.f), child_pos + ImVec2(540, 457), false);
 	draw_list->PushClipRect(child_pos + ImVec2(0.f, 62.f), child_pos + ImVec2(540, 457));
 }
-
 std::vector< Snowflake::Snowflake > snow;
 
 void c_menu::draw_snow()

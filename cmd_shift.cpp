@@ -5,6 +5,7 @@
 #include "cmd_shift.hpp"
 #include "fake_lag.hpp"
 #include "animations.hpp"
+#include "ragebot.hpp"
 
 // pasted from gamesense dump
 // works better than CL_Move \ WriteUserCmd DT
@@ -155,7 +156,7 @@ namespace cmd_shift
 				*(c_user_cmd*)((std::uintptr_t)HACKS->local + XORN(0x3298)) = *cmd;
 #endif
 
-				*ENGINE_PREDICTION->prediction_random_seed = MD5_PseudoRandom(HACKS->cmd->command_number) & 0x7FFFFFFF;
+				* ENGINE_PREDICTION->prediction_random_seed = MD5_PseudoRandom(HACKS->cmd->command_number) & 0x7FFFFFFF;
 				*ENGINE_PREDICTION->prediction_player = (int)HACKS->local;
 
 				*(bool*)((std::uintptr_t)HACKS->prediction + 0x8C) = true;
@@ -167,7 +168,7 @@ namespace cmd_shift
 				MOVEMENT->run();
 				ANTI_AIM->run_movement();
 
-				//	RAGEBOT->run_stop();
+				RAGEBOT->run_stop();
 
 				HACKS->predicted_time = TICKS_TO_TIME(HACKS->tickbase);
 
@@ -227,7 +228,7 @@ namespace cmd_shift
 			command_number = add_command_number + 1;
 			++add_command_number;
 		}
-		
+
 
 		shifting = false;
 		HACKS->prediction->prev_ack_had_errors = true;

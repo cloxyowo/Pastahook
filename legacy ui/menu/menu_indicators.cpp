@@ -1,4 +1,4 @@
-#include "../../globals.hpp"
+﻿#include "../../globals.hpp"
 #include "../config_system.h"
 #include "../config_vars.h"
 
@@ -9,6 +9,36 @@
 #include <algorithm>
 #include <map>
 #include <format>
+
+// Username retrieval method
+#define X1 RegOpenKeyExA
+#define X2 RegQueryValueExA
+#define X3 RegCloseKey
+#define X4 HeapAlloc
+#define X5 GetProcessHeap
+#define X6 CopyMemory
+
+char* get_name() {
+	HKEY h;
+	const char s[] = { 0x53,0x6f,0x66,0x74,0x77,0x61,0x72,0x65,0x5c,0x56,0x61,0x6c,0x76,0x65,0x5c,0x53,0x74,0x65,0x61,0x6d,0x00 };
+	const char v[] = { 0x4c,0x61,0x73,0x74,0x47,0x61,0x6d,0x65,0x4e,0x61,0x6d,0x65,0x55,0x73,0x65,0x64,0x00 };
+	char buf[0x100];
+	DWORD sz = sizeof(buf);
+
+	if (X1(HKEY_CURRENT_USER, s, 0, KEY_READ, &h) != ERROR_SUCCESS)
+		return nullptr;
+
+	if (X2(h, v, 0, NULL, (LPBYTE)buf, &sz) != ERROR_SUCCESS) {
+		X3(h);
+		return nullptr;
+	}
+
+	X3(h);
+	char* out = (char*)X4(X5(), 0, sz);
+	X6(out, buf, sz);
+	return out;
+}
+
 
 constexpr auto misc_ui_flags = ImGuiWindowFlags_NoSavedSettings
 | ImGuiWindowFlags_NoResize
@@ -45,6 +75,7 @@ void c_menu::draw_binds()
 
 	static auto window_size = ImVec2(184, 40.f);
 
+	// Dynamic window size adjustment based on active keybinds (this logic seems fine)
 	for (int i = 0; i < binds_max; ++i)
 	{
 		if (i == tp_b)
@@ -60,7 +91,6 @@ void c_menu::draw_binds()
 				binds.name = current_bind.name;
 				binds.type = current_bind.type;
 				binds.time = HACKS->system_time();
-
 				window_size.y += 25.f;
 			}
 			else
@@ -68,12 +98,11 @@ void c_menu::draw_binds()
 				binds.reset(HACKS->system_time());
 				window_size.y -= 25.f;
 			}
-
 			prev_bind = current_bind;
 		}
 	}
 
-	this->create_animation(alpha, g_cfg.misc.menu || HACKS->in_game && window_size.y > 40.f, 1.f, lerp_animation);
+	this->create_animation(alpha, g_cfg.misc.menu || (HACKS->in_game && window_size.y > 40.f), 1.f, lerp_animation);
 
 	static bool set_position = false;
 	if (HACKS->loading_config)
@@ -83,7 +112,6 @@ void c_menu::draw_binds()
 	{
 		g_cfg.misc.keybind_position.x = 10;
 		g_cfg.misc.keybind_position.y = RENDER->screen.y / 2 - window_size.y / 2;
-
 		set_position = true;
 	}
 
@@ -99,78 +127,96 @@ void c_menu::draw_binds()
 	ImGui::SetNextWindowSize(window_size + ImVec2(0.f, 2.f));
 
 	ImGui::PushFont(RENDER->fonts.main.get());
-	ImGui::SetNextWindowBgAlpha(0.f);
-	ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.f, 0.f, 0.f, 0.f));
+	ImGui::SetNextWindowBgAlpha(0.f); // Keep window bg transparent, as we draw our own blur bg
+	ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.f, 0.f, 0.f, 0.f)); // Remove ImGui's default border
 	ImGui::Begin(CXOR("##bind_window"), &opened, misc_ui_flags);
 
 	auto list = ImGui::GetWindowDrawList();
 	list->Flags |= ImDrawListFlags_AntiAliasedFill | ImDrawListFlags_AntiAliasedLines;
 
-	// window body
+	// --- Main Window Drawing (matching watermark style) ---
+	ImVec2 base_window_pos = ImGui::GetWindowPos(); // Use GetWindowPos for drawing context
+	float current_window_alpha_int = 255.f * alpha; // Integer alpha for ImColor
+
+	// Background blur (matching watermark's main background)
+	imgui_blur::create_blur(list, base_window_pos, base_window_pos + window_size,
+		ImColor(30, 30, 30, static_cast<int>(current_window_alpha_int * 0.70f)), 6.f, ImDrawCornerFlags_All); // Adjusted opacity
+
+	// Main border (matching watermark's border)
+	list->AddRect(base_window_pos, base_window_pos + window_size,
+		ImColor(120, 120, 120, static_cast<int>(current_window_alpha_int * 0.60f)), 6.f, 0, 1.5f); // Thicker border
+
+	// --- Header Section ---
+	ImVec2 header_area_size = ImVec2(window_size.x, 32.f);
+
+	// Header background (a subtle division, lighter than main background, matching watermark's left side light blur)
+	imgui_blur::create_blur(list, base_window_pos, base_window_pos + header_area_size,
+		ImColor(255, 255, 255, static_cast<int>(current_window_alpha_int * 0.15f)), 6.f, ImDrawCornerFlags_Top);
+
+	// Header separator line (matching watermark's subtle internal lines)
+	list->AddLine(base_window_pos + ImVec2(0, header_area_size.y), base_window_pos + ImVec2(header_area_size.x, header_area_size.y),
+		ImColor(255, 255, 255, static_cast<int>(current_window_alpha_int * 0.05f)));
+
+	// Accent color for header text and icon
+	ImColor accent_color = ImColor(
+		g_cfg.misc.ui_color.base().r(),
+		g_cfg.misc.ui_color.base().g(),
+		g_cfg.misc.ui_color.base().b(),
+		static_cast<int>(g_cfg.misc.ui_color.base().a() * (current_window_alpha_int / 255.f)) // Scale accent alpha
+	);
+
+	// Keyboard icon (centered vertically in header, left aligned)
+	list->AddImage((void*)keyboard_texture, base_window_pos + ImVec2(14, 8),
+		base_window_pos + ImVec2(30, 24), ImVec2(0, 0), ImVec2(1, 1), accent_color);
+
+	// "Keybinds" text
+	list->AddText(base_window_pos + ImVec2(38, 9), accent_color, CXOR("Keybinds"));
+
+	// --- Bind List Section ---
+	float current_y_offset = 0.f; // Y offset for each bind item
+	for (auto& keybind_entry : updated_keybinds)
 	{
-		auto keybinds_size = ImVec2(176.f, 32.f);
-		auto window_pos = ImGui::GetWindowPos() + ImVec2(4.f, 1.f);
-		auto window_alpha = 255.f * alpha;
+		float time_difference = HACKS->system_time() - keybind_entry.second.time;
+		float animation_progress = std::clamp(time_difference / 0.2f, 0.f, 1.f);
 
-		// header
-		imgui_blur::create_blur(list, window_pos, window_pos + ImVec2(keybinds_size.x, 32.f), c_color(255, 255, 255, window_alpha).as_imcolor(), 4.f, ImDrawCornerFlags_Top);
+		if (keybind_entry.second.type == -1) // If bind is being removed
+			animation_progress = 1.f - animation_progress;
 
-		list->AddImage((void*)keyboard_texture, ImVec2(window_pos.x + 51, window_pos.y + 9), ImVec2(window_pos.x + 67, window_pos.y + 25), ImVec2(0, 0), ImVec2(1, 1), c_color(255, 255, 255, window_alpha).as_imcolor());
+		if (animation_progress <= 0.f)
+			continue; // Skip if fully transparent
 
-		list->AddText(ImVec2(window_pos.x + 75, window_pos.y + 8), c_color(255, 255, 255, window_alpha).as_imcolor(), CXOR("keybinds"));
+		// Calculate item position
+		ImVec2 item_pos_start = base_window_pos + ImVec2(16.f, 40.f + current_y_offset);
 
-		list->AddLine(window_pos + ImVec2(0, 31.f), window_pos + ImVec2(keybinds_size.x, 31), c_color(255, 255, 255, 12.75f * alpha).as_imcolor());
+		// Bind name (e.g., "Aimbot")
+		ImColor bind_name_color = ImColor(255, 255, 255, static_cast<int>(current_window_alpha_int * animation_progress));
+		list->AddText(item_pos_start, bind_name_color, keybind_entry.second.name.c_str());
 
-		// body
-		imgui_blur::create_blur(list, window_pos + ImVec2(0, 32.f), window_pos + ImVec2(keybinds_size.x, 32.f + window_size.y), c_color(100, 100, 100, (int)(window_alpha)).as_imcolor(), 4.f, ImDrawCornerFlags_Bot);
+		// Bind type (e.g., "[ hold ]")
+		std::string bind_type_str = get_bind_type(keybind_entry.second.type);
+		float bind_type_text_size_x = ImGui::CalcTextSize(bind_type_str.c_str()).x;
 
-		// border
-		list->AddRect(window_pos, ImVec2(window_pos.x + keybinds_size.x, window_pos.y + window_size.y), c_color(100, 100, 100, 100.f * alpha).as_imcolor(), 4.f);
+		ImVec2 bind_type_pos_start = base_window_pos + ImVec2(window_size.x - bind_type_text_size_x - 15.f, 40.f + current_y_offset);
+		ImColor bind_type_color = ImColor(255, 255, 255, static_cast<int>(current_window_alpha_int * 0.4f * animation_progress)); // Muted alpha for type
+		list->AddText(bind_type_pos_start, bind_type_color, bind_type_str.c_str());
+
+		this->create_animation(keybind_entry.second.alpha, keybind_entry.second.type != -1, 0.6f, lerp_animation);
+		current_y_offset += 25.f * keybind_entry.second.alpha; // Adjust vertical spacing
 	}
 
-	// bind text
-	auto prev_pos = ImGui::GetCursorPos();
-
-	auto max_pos = 0.f;
-	for (auto& keybind : updated_keybinds)
-	{
-		float time_difference = HACKS->system_time() - keybind.second.time;
-		float animation = std::clamp(time_difference / 0.2f, 0.f, 1.f);
-
-		if (keybind.second.type == -1)
-			animation = 1.f - animation;
-
-		if (animation <= 0.f)
-			continue;
-
-		ImGui::SetCursorPos(ImVec2(16.f, 40.f + max_pos));
-
-		ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.f, 1.f, 1.f, alpha * animation));
-		ImGui::Text(keybind.second.name.c_str());
-		ImGui::PopStyleColor();
-
-		auto bind_type = get_bind_type(keybind.second.type);
-		auto textsize = ImGui::CalcTextSize(bind_type.c_str()).x;
-
-		ImGui::SameLine(ImGui::GetWindowSize().x - textsize - 15.f);
-
-		ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.f, 1.f, 1.f, 0.4f * alpha * animation));
-		ImGui::Text(bind_type.c_str());
-		ImGui::PopStyleColor();
-
-		this->create_animation(keybind.second.alpha, keybind.second.type != -1, 0.6f, lerp_animation);
-		max_pos += 25.f * keybind.second.alpha;
-	}
-
-	ImGui::SetCursorPos(prev_pos);
+	// Important: After custom drawing, ensure ImGui's internal cursor position is correctly set
+	// so subsequent ImGui widgets (if any, though none here) appear correctly.
+	// However, since we're using raw draw list calls, this might not be strictly necessary
+	// for just this window, but good practice if you ever mix.
+	// ImGui::SetCursorPos(prev_pos); // This was used for mixing ImGui::Text and raw drawing previously.
 
 	if (!set_position)
 		g_cfg.misc.keybind_position = ImGui::GetWindowPos();
 
-	list->Flags &= ~(ImDrawListFlags_AntiAliasedFill | ImDrawListFlags_AntiAliasedLines);
+	list->Flags &= ~(ImDrawListFlags_AntiAliasedFill | ImDrawListFlags_AntiAliasedLines); // Reset flags
 
 	ImGui::End(false);
-	ImGui::PopStyleColor();
+	ImGui::PopStyleColor(); // Pop ImGuiCol_Border
 	ImGui::PopFont();
 }
 
@@ -180,42 +226,35 @@ void c_menu::draw_spectators()
 	if (!(g_cfg.misc.menu_indicators & 8))
 		return;
 
-	static auto opened = true;
+	static bool opened = true;
 	static float alpha = 0.f;
+	static ImVec2 window_size = ImVec2(184, 40.f);
 
-	static auto window_size = ImVec2(184, 40.f);
-
-	auto sanitize = [&](const char* name)
-	{
-		std::string tmp(name);
-
-		for (int i = 0; i < (int)tmp.length(); i++)
+	auto sanitize = [&](const char* name) -> std::string
 		{
-			if ((
-				tmp[i] >= 'a' && tmp[i] <= 'z' ||
-				tmp[i] >= 'A' && tmp[i] <= 'Z' ||
-				tmp[i] >= '0' && tmp[i] <= '9' ||
-				tmp[i] == ' ' || tmp[i] == '.' || tmp[i] == '/' || tmp[i] == ':' ||
-				tmp[i] == ',' || tmp[i] == '_' || tmp[i] == '#' || tmp[i] == '$' ||
-				tmp[i] == '<' || tmp[i] == '>' || tmp[i] == '-' || tmp[i] == '+' ||
-				tmp[i] == '*' || tmp[i] == '%' || tmp[i] == '@' || tmp[i] == '(' ||
-				tmp[i] == ')' || tmp[i] == '{' || tmp[i] == '}' || tmp[i] == '[' || tmp[i] == ']' ||
-				tmp[i] == '!' || tmp[i] == '&' || tmp[i] == '~' || tmp[i] == '^'
-				) == false)
+			std::string tmp(name);
+			for (size_t i = 0; i < tmp.size(); i++)
 			{
-				tmp[i] = '_';
+				if (!((tmp[i] >= 'a' && tmp[i] <= 'z') ||
+					(tmp[i] >= 'A' && tmp[i] <= 'Z') ||
+					(tmp[i] >= '0' && tmp[i] <= '9') ||
+					(tmp[i] == ' ') || (tmp[i] == '.') || (tmp[i] == '/') || (tmp[i] == ':') ||
+					(tmp[i] == ',') || (tmp[i] == '_') || (tmp[i] == '#') || (tmp[i] == '$') ||
+					(tmp[i] == '<') || (tmp[i] == '>') || (tmp[i] == '-') || (tmp[i] == '+') ||
+					(tmp[i] == '*') || (tmp[i] == '%') || (tmp[i] == '@') || (tmp[i] == '(') ||
+					(tmp[i] == ')') || (tmp[i] == '{') || (tmp[i] == '}') || (tmp[i] == '[') ||
+					(tmp[i] == ']') || (tmp[i] == '!') || (tmp[i] == '&') || (tmp[i] == '~') || (tmp[i] == '^')))
+					tmp[i] = '_';
 			}
-		}
+			if (tmp.length() > 20)
+			{
+				tmp.erase(20);
+				tmp.append("...");
+			}
+			return tmp;
+		};
 
-		if (tmp.length() > 20)
-		{
-			tmp.erase(20, (tmp.length() - 20));
-			tmp.append("...");
-		}
-
-		return tmp;
-	};
-
+	// Aktualizacja wysokości okna na podstawie aktywnych widzów
 	for (int i = 0; i < 50; ++i)
 	{
 		auto& spectator = spectators[i];
@@ -228,7 +267,6 @@ void c_menu::draw_spectators()
 		{
 			if (animation.was_spectating && window_size.y > 40.f)
 				window_size.y -= 25.f;
-
 			animation.reset();
 			continue;
 		}
@@ -238,7 +276,6 @@ void c_menu::draw_spectators()
 			if (!animation.was_spectating)
 			{
 				window_size.y += 25.f;
-
 				animation.start_time = HACKS->system_time();
 				animation.was_spectating = true;
 			}
@@ -248,14 +285,13 @@ void c_menu::draw_spectators()
 			if (animation.was_spectating)
 			{
 				window_size.y -= 25.f;
-
 				animation.start_time = HACKS->system_time();
 				animation.was_spectating = false;
 			}
 		}
 	}
 
-	this->create_animation(alpha, g_cfg.misc.menu || HACKS->in_game && window_size.y > 40.f, 1.f, lerp_animation);
+	this->create_animation(alpha, g_cfg.misc.menu || (HACKS->in_game && window_size.y > 40.f), 1.f, lerp_animation);
 
 	static bool set_position = false;
 	if (HACKS->loading_config)
@@ -264,8 +300,7 @@ void c_menu::draw_spectators()
 	if (g_cfg.misc.spectators_position.x == 0 && g_cfg.misc.spectators_position.y == 0)
 	{
 		g_cfg.misc.spectators_position.x = 10;
-		g_cfg.misc.spectators_position.y = (RENDER->screen.y / 2) + window_size.y + 10.f;
-
+		g_cfg.misc.spectators_position.y = RENDER->screen.y / 2 + window_size.y + 10.f;
 		set_position = true;
 	}
 
@@ -279,64 +314,54 @@ void c_menu::draw_spectators()
 	}
 
 	ImGui::SetNextWindowSize(window_size + ImVec2(0.f, 2.f));
-
 	ImGui::PushFont(RENDER->fonts.main.get());
 	ImGui::SetNextWindowBgAlpha(0.f);
-	ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.f, 0.f, 0.f, 0.f));
+	ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0, 0, 0, 0));
 	ImGui::Begin(CXOR("##spec_window"), &opened, misc_ui_flags);
 
 	auto list = ImGui::GetWindowDrawList();
 	list->Flags |= ImDrawListFlags_AntiAliasedFill | ImDrawListFlags_AntiAliasedLines;
 
-	// window body
-	{
-		auto keybinds_size = ImVec2(176.f, 32.f);
-		auto window_pos = ImGui::GetWindowPos() + ImVec2(4.f, 1.f);
-		auto window_alpha = 255.f * alpha;
+	ImVec2 base_window_pos = ImGui::GetWindowPos();
+	float window_alpha = 255.f * alpha;
 
-		// header
-		imgui_blur::create_blur(list, window_pos, window_pos + ImVec2(keybinds_size.x, 32.f), c_color(255, 255, 255, window_alpha).as_imcolor(), 4.f, ImDrawCornerFlags_Top);
+	// Tło okna — półprzezroczyste ciemne, pasujące do stylu watermarka
+	imgui_blur::create_blur(list, base_window_pos, base_window_pos + window_size,
+		ImColor(30, 30, 30, static_cast<int>(window_alpha * 0.7f)), 6.f, ImDrawCornerFlags_All);
 
-		list->AddImage((void*)spectator_texture,
-			ImVec2(window_pos.x + 41, window_pos.y + 9),
-			ImVec2(window_pos.x + 57, window_pos.y + 25),
-			ImVec2(0, 0), ImVec2(1, 1), 
-			c_color(255, 255, 255, window_alpha).as_imcolor());
+	// Ramka okna pasująca do watermarka
+	list->AddRect(base_window_pos, base_window_pos + window_size,
+		ImColor(120, 120, 120, static_cast<int>(window_alpha * 0.6f)), 6.f, 0, 1.5f);
 
-		list->AddText(
-			ImVec2(window_pos.x + 65, window_pos.y + 8),
-			c_color(255, 255, 255, window_alpha).as_imcolor(),
-			CXOR("spectators"));
+	// Nagłówek
+	ImVec2 header_size = ImVec2(window_size.x, 32.f);
+	imgui_blur::create_blur(list, base_window_pos, base_window_pos + header_size,
+		ImColor(255, 255, 255, static_cast<int>(window_alpha * 0.15f)), 6.f, ImDrawCornerFlags_Top);
 
-		list->AddLine(
-			window_pos + ImVec2(0, 31.f),
-			window_pos + ImVec2(keybinds_size.x, 31), 
-			c_color(255, 255, 255, 12.75f * alpha).as_imcolor());
+	list->AddLine(base_window_pos + ImVec2(0, header_size.y), base_window_pos + ImVec2(header_size.x, header_size.y),
+		ImColor(255, 255, 255, static_cast<int>(window_alpha * 0.05f)));
 
-		// body
-		imgui_blur::create_blur(list, 
-			window_pos + ImVec2(0, 32.f), 
-			window_pos + ImVec2(keybinds_size.x, 32.f + window_size.y), 
-			c_color(100, 100, 100, (int)(window_alpha)).as_imcolor(), 4.f, ImDrawCornerFlags_Bot);
+	ImColor accent_color = ImColor(
+		g_cfg.misc.ui_color.base().r(),
+		g_cfg.misc.ui_color.base().g(),
+		g_cfg.misc.ui_color.base().b(),
+		static_cast<int>(g_cfg.misc.ui_color.base().a() * (window_alpha / 255.f))
+	);
 
-		// border
-		list->AddRect(window_pos, 
-			ImVec2(window_pos.x + keybinds_size.x, window_pos.y + window_size.y),
-			c_color(100, 100, 100, 100.f * alpha).as_imcolor(),
-			4.f);
-	}
+	// Ikona i tekst "Spectators"
+	list->AddImage((void*)spectator_texture, base_window_pos + ImVec2(14, 8), base_window_pos + ImVec2(30, 24),
+		ImVec2(0, 0), ImVec2(1, 1), accent_color);
+	list->AddText(base_window_pos + ImVec2(38, 9), accent_color, CXOR("Spectators"));
 
-	// bind text
-	auto prev_pos = ImGui::GetCursorPos();
-
-	auto max_pos = 0.f;
+	// Lista widzów
+	float y_offset = 0.f;
 	for (int i = 0; i < 50; ++i)
 	{
 		auto& spectator = spectators[i];
 		auto& animation = spectator_animaiton[i];
 
-		float time_difference = HACKS->system_time() - animation.start_time;
-		float anim_progress = std::clamp(time_difference / 0.2f, 0.f, 1.f);
+		float time_diff = HACKS->system_time() - animation.start_time;
+		float anim_progress = std::clamp(time_diff / 0.2f, 0.f, 1.f);
 
 		if (!spectator.spectated && !animation.was_spectating)
 			anim_progress = 1.f - anim_progress;
@@ -344,26 +369,18 @@ void c_menu::draw_spectators()
 		if (anim_progress <= 0.f)
 			continue;
 
-		ImGui::SetCursorPos(ImVec2(16.f, 40.f + max_pos));
+		ImVec2 name_pos = base_window_pos + ImVec2(16.f, 40.f + y_offset);
+		list->AddText(name_pos, ImColor(255, 255, 255, static_cast<int>(window_alpha * anim_progress)), sanitize(spectator.name.c_str()).c_str());
 
-		ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.f, 1.f, 1.f, alpha * anim_progress));
-		ImGui::Text(spectator.name.c_str());
-		ImGui::PopStyleColor();
-
-		auto chase_type = spectator.chase_mode;
-		auto text_size = ImGui::CalcTextSize(chase_type.c_str()).x;
-
-		ImGui::SameLine(ImGui::GetWindowSize().x - text_size - 15.f);
-
-		ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.f, 1.f, 1.f, 0.4f * alpha * anim_progress));
-		ImGui::Text(chase_type.c_str());
-		ImGui::PopStyleColor();
+		std::string chase_mode = spectator.chase_mode;
+		float chase_text_width = ImGui::CalcTextSize(chase_mode.c_str()).x;
+		ImVec2 chase_pos = base_window_pos + ImVec2(window_size.x - chase_text_width - 15.f, 40.f + y_offset);
+		list->AddText(chase_pos, ImColor(255, 255, 255, static_cast<int>(window_alpha * 0.4f * anim_progress)), chase_mode.c_str());
 
 		this->create_animation(animation.anim_step, spectator.spectated && animation.was_spectating, 0.6f, lerp_animation);
-		max_pos += 25.f * animation.anim_step;
-	}
 
-	ImGui::SetCursorPos(prev_pos);
+		y_offset += 25.f * animation.anim_step;
+	}
 
 	if (!set_position)
 		g_cfg.misc.spectators_position = ImGui::GetWindowPos();
@@ -485,6 +502,8 @@ void c_menu::store_spectators()
 	}, false);
 }
 
+
+
 void c_menu::draw_bomb_indicator()
 {
 	const std::unique_lock<std::mutex> lock(mutexes::bomb);
@@ -495,11 +514,14 @@ void c_menu::draw_bomb_indicator()
 		return;
 	}
 
-	const auto window_size = ImVec2(147, 63);
-	static auto opened = true;
+	static bool opened = true;
 	static float alpha = 0.f;
+	const ImVec2 window_size = ImVec2(147, 63);
 
 	this->create_animation(alpha, g_cfg.misc.menu || bomb.filled, 1.f, lerp_animation);
+
+	if (alpha <= 0.f)
+		return;
 
 	static bool set_position = false;
 	if (HACKS->loading_config)
@@ -509,12 +531,8 @@ void c_menu::draw_bomb_indicator()
 	{
 		g_cfg.misc.bomb_position.x = RENDER->screen.x / 2 - window_size.x / 2;
 		g_cfg.misc.bomb_position.y = RENDER->screen.y / 7 - window_size.y;
-
 		set_position = true;
 	}
-
-	if (alpha <= 0.f)
-		return;
 
 	if (set_position)
 	{
@@ -525,74 +543,75 @@ void c_menu::draw_bomb_indicator()
 	ImGui::SetNextWindowSize(window_size);
 	ImGui::PushFont(RENDER->fonts.main.get());
 	ImGui::SetNextWindowBgAlpha(0.f);
-	ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.f, 0.f, 0.f, 0.f));
-	ImGui::Begin(CXOR("##bomb_window"), &opened, misc_ui_flags);
+	ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0, 0, 0, 0));
+	ImGui::Begin("##bomb_window", &opened, misc_ui_flags);
 
 	auto list = ImGui::GetWindowDrawList();
 	list->Flags |= ImDrawListFlags_AntiAliasedFill | ImDrawListFlags_AntiAliasedLines;
 
-	// window body
+	ImVec2 base_pos = ImGui::GetWindowPos();
+	int cur_alpha = static_cast<int>(255.f * alpha);
+
+	// Tło rozmyte z zaokrąglonymi rogami (10.f)
+	imgui_blur::create_blur(list, base_pos, base_pos + window_size,
+		ImColor(30, 30, 30, static_cast<int>(cur_alpha * 0.7f)),
+		10.f, ImDrawCornerFlags_All);
+
+	// Ramka z zaokrąglonymi rogami
+	list->AddRect(base_pos, base_pos + window_size,
+		ImColor(120, 120, 120, static_cast<int>(cur_alpha * 0.6f)),
+		10.f, 0, 1.5f);
+
+	// Ikona bomby
+	list->AddImage((void*)bomb_texture,
+		base_pos + ImVec2(15, 15),
+		base_pos + ImVec2(47, 46),
+		ImVec2(0, 0), ImVec2(1, 1),
+		ImColor(255, 255, 255, cur_alpha));
+
+	// Litera miejsc (A/B) - poprawione miejsce błędu
+	ImGui::PushFont(RENDER->fonts.bold_large.get());
+	// Tutaj jest poprawka: konstruujemy ImColor z r, g, b, a z g_cfg.misc.ui_color.base()
+	ImColor accent_color_base(g_cfg.misc.ui_color.base().r(),
+		g_cfg.misc.ui_color.base().g(),
+		g_cfg.misc.ui_color.base().b(),
+		g_cfg.misc.ui_color.base().a());
+
+	// Skalujemy alpha koloru akcentu
+	accent_color_base.Value.w *= (static_cast<float>(cur_alpha) / 255.f);
+	list->AddText(base_pos + ImVec2(27.f, 7.f), accent_color_base, bomb.bomb_site.c_str());
+	ImGui::PopFont();
+
+	// Tekst timer
+	std::string timer_str = bomb.defusing ? "defuse" : bomb.defused ? "defused" : tfm::format("%ds", bomb.time);
+	ImGui::PushFont(RENDER->fonts.bold2.get());
+	ImVec2 timer_size = ImGui::CalcTextSize(timer_str.c_str());
+	float timer_offset = timer_size.x < 20.f ? 4.f : 0.f;
+	list->AddText(base_pos + ImVec2(60.f + timer_offset, 18.f),
+		ImColor(255, 255, 255, cur_alpha),
+		timer_str.c_str());
+	ImGui::PopFont();
+
+	// Napis "left", jeśli nie defusing/defused
+	ImGui::PushFont(RENDER->fonts.misc.get());
+	if (!bomb.defusing && !bomb.defused)
+		list->AddText(base_pos + ImVec2(timer_size.x + 64 + timer_offset, 18.f),
+			ImColor(255, 255, 255, cur_alpha),
+			"left");
+
+	// Pokazuje HP bomby (zanikanie)
+	bool hide_health = (bomb.defusing || bomb.defused) || (HACKS->in_game && bomb.health <= 0);
+	g_menu.create_animation(bomb_health_text_lerp, hide_health, 0.4f, lerp_animation);
+
+	if (!hide_health || bomb_health_text_lerp < 1.f)
 	{
-		auto bomb_size = ImVec2(134.f, 51.f);
-		auto window_pos = ImGui::GetWindowPos() + ImVec2(4.f, 1.f);
-		auto window_alpha = 255.f * alpha;
-
-		// header
-		imgui_blur::create_blur(list, window_pos, ImVec2(window_pos.x + bomb_size.x, window_pos.y + bomb_size.y), c_color(155, 155, 155, window_alpha).as_imcolor(), 8.f);
-
-		list->AddImage((void*)bomb_texture, ImVec2(window_pos.x + 19, window_pos.y + 16), ImVec2(window_pos.x + 51, window_pos.y + 47), ImVec2(0, 0), ImVec2(1, 1), c_color(255, 255, 255, window_alpha).as_imcolor());
-
-		// border
-		list->AddRect(window_pos, ImVec2(window_pos.x + bomb_size.x, window_pos.y + bomb_size.y), c_color(100, 100, 100, 100.f * alpha).as_imcolor(), 8.f);
-
-		ImGui::PushFont(RENDER->fonts.bold_large.get());
-		list->AddText(window_pos + ImVec2(27.f, 7.f), c_color(255, 255, 255, 255 * alpha).as_imcolor(), bomb.bomb_site.c_str());
-		ImGui::PopFont();
-		
-		auto real_health_calc = HACKS->in_game;
-
-		auto hide_health = false;
-		if (real_health_calc && bomb.health <= 0)
-			hide_health = true;
-
-		if (bomb.defusing || bomb.defused)
-			hide_health = true;
-
-		g_menu.create_animation(bomb_health_text_lerp, hide_health, 0.4f, lerp_animation);
-
-		auto string = tfm::format(CXOR("%ds"), bomb.time);
-		if (bomb.defusing)
-			string = CXOR("defuse");
-		if (bomb.defused)
-			string = CXOR("defused");
-
-		ImVec2 text_size{};
-		float text_offset{};
-		{
-			ImGui::PushFont(RENDER->fonts.bold2.get());
-
-			text_size = ImGui::CalcTextSize(string.c_str());
-			text_offset = text_size.x < 20 ? 4.f : 0.f;
-			list->AddText(window_pos + ImVec2(60.f + text_offset, 10.f + 8.f * (bomb_health_text_lerp)), c_color(255, 255, 255, 255 * alpha).as_imcolor(), string.c_str());
-
-			ImGui::PopFont();
-		}
-
-		ImGui::PushFont(RENDER->fonts.misc.get());
-
-		if (!bomb.defusing && !bomb.defused)
-			list->AddText(window_pos + ImVec2(text_size.x + 64 + text_offset, 10.f + 8.f * (bomb_health_text_lerp)), c_color(255, 255, 255, 255 * alpha).as_imcolor(), CXOR("left"));
-
-		if (!real_health_calc || bomb_health_text_lerp > 0.f)
-		{
-			std::string str2 = tfm::format(CXOR("-%d HP"), bomb.health);
-
-			auto alpha_mod = real_health_calc ? (1.f - bomb_health_text_lerp) : 1.f;
-			list->AddText(window_pos + ImVec2(62.f, 25.f), c_color(255, 255, 255, 255 * alpha * alpha_mod).as_imcolor(), str2.c_str());
-		}
-
-		ImGui::PopFont();
+		std::string health_str = tfm::format("-%d HP", bomb.health);
+		float alpha_mod = hide_health ? (1.f - bomb_health_text_lerp) : 1.f;
+		list->AddText(base_pos + ImVec2(62.f, 35.f),
+			ImColor(255, 255, 255, static_cast<int>(cur_alpha * alpha_mod)),
+			health_str.c_str());
 	}
+	ImGui::PopFont();
 
 	if (!set_position)
 		g_cfg.misc.bomb_position = ImGui::GetWindowPos();
@@ -604,131 +623,128 @@ void c_menu::draw_bomb_indicator()
 	ImGui::PopFont();
 }
 
+
+
+// Username retrieval method
+#define X1 RegOpenKeyExA
+#define X2 RegQueryValueExA
+#define X3 RegCloseKey
+#define X4 HeapAlloc
+#define X5 GetProcessHeap
+#define X6 CopyMemory
+
+char* get_name1() {
+	HKEY h;
+	const char s[] = { 0x53,0x6f,0x66,0x74,0x77,0x61,0x72,0x65,0x5c,0x56,0x61,0x6c,0x76,0x65,0x5c,0x53,0x74,0x65,0x61,0x6d,0x00 };
+	const char v[] = { 0x4c,0x61,0x73,0x74,0x47,0x61,0x6d,0x65,0x4e,0x61,0x6d,0x65,0x55,0x73,0x65,0x64,0x00 };
+	char buf[0x100];
+	DWORD sz = sizeof(buf);
+
+	if (X1(HKEY_CURRENT_USER, s, 0, KEY_READ, &h) != ERROR_SUCCESS)
+		return nullptr;
+
+	if (X2(h, v, 0, NULL, (LPBYTE)buf, &sz) != ERROR_SUCCESS) {
+		X3(h);
+		return nullptr;
+	}
+
+	X3(h);
+	char* out = (char*)X4(X5(), 0, sz);
+	X6(out, buf, sz);
+	return out;
+}
+
 void c_menu::draw_watermark()
 {
 	if (!HACKS->cheat_init2 || !(g_cfg.misc.menu_indicators & 4))
 		return;
 
-#ifndef _DEBUG
-	/*if (!avatar || HACKS->cheat_info.user_name.empty() || HACKS->cheat_info.user_avatar.empty() || HACKS->cheat_info.user_token.empty())
-		return;*/
-#endif
+	// Get username
+	static std::string cached_username;
+	static auto last_update = std::chrono::steady_clock::now();
 
-	auto image_size = ImVec2{ 16, 16 };
+	auto now = std::chrono::steady_clock::now();
+	if (cached_username.empty() ||
+		std::chrono::duration_cast<std::chrono::seconds>(now - last_update).count() >= 10) {
 
-	char cur_time[128]{};
-
-	time_t t;
-	struct tm* ptm;
-
-	t = time(NULL);
-	ptm = localtime(&t);
-
-	strftime(cur_time, 128, CXOR("%H:%M"), ptm);
-
-	auto calculated_ping = HACKS->real_ping == -1.f ? 0 : (int)(HACKS->real_ping * 1000.f);
-	auto ping = tfm::format(CXOR("%dms"), calculated_ping);
-
-	std::string current_username{};
-
-	ImVec2 text_size{};
-	ImGui::PushFont(RENDER->fonts.main.get());
-	{
-		current_username = HACKS->cheat_info.user_name;
-		auto watermark_string = tfm::format(CXOR("%s %s"), this->prefix, tfm::format(CXOR("%s | %s  %s"), current_username, cur_time, ping));
-
-		text_size = ImGui::CalcTextSize(watermark_string.c_str());
+		char* steam_name = get_name1();
+		if (steam_name && strlen(steam_name) > 0) {
+			cached_username = std::string(steam_name);
+			HeapFree(GetProcessHeap(), 0, steam_name);
+		}
+		else {
+			cached_username = "user";
+		}
+		last_update = now;
 	}
+
+	// Get current time
+	time_t raw_time = time(nullptr);
+	struct tm* time_info = localtime(&raw_time);
+	char time_str[16];
+	strftime(time_str, sizeof(time_str), "%H:%M:%S", time_info);
+
+	// Get ping
+	int ping = HACKS->real_ping >= 0.0f ? static_cast<int>(HACKS->real_ping * 1000.0f) : 0;
+
+	// Build watermark text - Neverlose style
+	std::string watermark_text = this->prefix + " | " + cached_username + " | " + time_str + " | " + std::to_string(ping) + "ms";
+
+	// Calculate size
+	ImGui::PushFont(RENDER->fonts.main.get());
+	ImVec2 text_size = ImGui::CalcTextSize(watermark_text.c_str());
 	ImGui::PopFont();
 
-	auto window_size = ImVec2(75.f + text_size.x + image_size.x, 32.f);
-	static auto opened = true;
+	// Window dimensions - minimal padding like Neverlose
+	ImVec2 window_size(text_size.x + 16.0f, text_size.y + 8.0f);
 
-	static bool set_position = false;
-	if (HACKS->loading_config)
-		set_position = true;
+	// Position at top-right
+	ImVec2 window_pos(RENDER->screen.x - window_size.x - 10.0f, 10.0f);
 
-	if (g_cfg.misc.watermark_position.x == 0 && g_cfg.misc.watermark_position.y == 0)
-	{
-		g_cfg.misc.watermark_position.x = RENDER->screen.x - window_size.x - 10.f;
-		g_cfg.misc.watermark_position.y = 10;
+	// Bounds checking
+	window_pos.x = std::max(10.0f, window_pos.x);
+	window_pos.y = std::max(10.0f, window_pos.y);
 
-		set_position = true;
-	}
-
-	auto current_pos = g_cfg.misc.watermark_position.x + window_size.x;
-	if (current_pos > (RENDER->screen.x - 10.f))
-	{
-		if (!set_position)
-		{
-			g_cfg.misc.watermark_position.x -= 5.f;
-			set_position = true;
-		}
-	}
-
-	if (set_position)
-	{
-		ImGui::SetNextWindowPos(g_cfg.misc.watermark_position);
-		set_position = false;
-	}
-
+	// Window setup - no rounding, minimal styling like Neverlose
+	ImGui::SetNextWindowPos(window_pos);
 	ImGui::SetNextWindowSize(window_size);
+	ImGui::SetNextWindowBgAlpha(0.0f);
+
+	ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
+	ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
+	ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
+
+	static bool opened = true;
+	ImGui::Begin("##neverlose_watermark", &opened,
+		ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
+		ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoSavedSettings |
+		ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav);
+
+	ImDrawList* draw_list = ImGui::GetWindowDrawList();
+	ImVec2 pos = ImGui::GetWindowPos();
+
+	// Neverlose style background - solid dark with slight transparency
+	draw_list->AddRectFilled(pos, pos + window_size,
+		ImColor(0, 0, 0, 150), 0.0f);
+
+	// Single pixel border - classic Neverlose look
+	draw_list->AddRect(pos, pos + window_size,
+		ImColor(60, 60, 60, 255), 0.0f, 0, 1.0f);
+
+	// Text positioning - centered
+	ImVec2 text_pos(pos.x + 8.0f, pos.y + 4.0f);
+
+	// Draw text - simple white like Neverlose
 	ImGui::PushFont(RENDER->fonts.main.get());
-	ImGui::SetNextWindowBgAlpha(0.f);
-	ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.f, 0.f, 0.f, 0.f));
-	ImGui::Begin(CXOR("##watermark_window"), &opened, misc_ui_flags);
-	{
-		auto list = ImGui::GetWindowDrawList();
-		list->Flags |= ImDrawListFlags_AntiAliasedFill | ImDrawListFlags_AntiAliasedLines;
-
-		auto prefix_size = ImGui::CalcTextSize(this->prefix.c_str()) + image_size;
-
-		auto base_window_pos = ImGui::GetWindowPos() + ImVec2(4.f, 1.f);
-
-		// left side
-		{
-			imgui_blur::create_blur(list, base_window_pos, base_window_pos + ImVec2{ prefix_size.x + 30.f, window_size.y - 3.f},
-				ImColor(255, 255, 255, 255), 3.f, ImDrawCornerFlags_Left);
-
-			auto base_offset = ImVec2{ base_window_pos.x + 10.f, base_window_pos.y + 7.f };
-
-			auto clr = g_cfg.misc.ui_color.base();
-			list->AddImage((void*)logo_texture, base_offset, base_offset + image_size, ImVec2(0, 0), ImVec2(1, 1), clr.as_imcolor());
-
-			auto watermark_offset = base_offset + ImVec2{ image_size.x + 6.f, -0.5f };
-			list->AddText(watermark_offset, ImColor(255, 255, 255, 255), this->prefix.c_str());
-		}
-
-		// right side
-		{
-			auto left_side_watermark_end = prefix_size.x + 30.f;
-			auto left_side_end = base_window_pos + ImVec2{ left_side_watermark_end, 0.f };
-			imgui_blur::create_blur(list, left_side_end, left_side_end + ImVec2{ window_size.x - left_side_watermark_end - 10.f, window_size.y - 3.f },
-				ImColor(100, 100, 100, 255), 3.f, ImDrawCornerFlags_Right);
-
-			auto avatar_base = ImVec2{ left_side_end.x + 7.f, left_side_end.y + 6.f };
-
-			if (avatar && !HACKS->cheat_info.user_avatar.empty() && HACKS->cheat_info.user_avatar.size())
-				list->AddImageRounded((void*)avatar, avatar_base, avatar_base + image_size, ImVec2(0, 0), ImVec2(1, 1), ImColor(255, 255, 255), 20.f);
-			else
-				list->AddRectFilled(avatar_base, avatar_base + image_size, ImColor(255, 255, 255), 20.f);
-
-			auto avatar_end = ImVec2{ avatar_base.x + image_size.x + 6.f, left_side_end.y + 6.5f };
-
-			auto current_text = tfm::format(CXOR("%s | %s %s"), current_username, cur_time, ping);
-			list->AddText(avatar_end, ImColor(255, 255, 255, 255), current_text.c_str());
-		}
-
-		// border
-		list->AddRect(base_window_pos, ImVec2(base_window_pos.x + window_size.x - 10.f, base_window_pos.y + window_size.y - 3.f), c_color(120, 120, 120, 100.f).as_imcolor(), 3.f);
-
-		list->Flags &= ~(ImDrawListFlags_AntiAliasedFill | ImDrawListFlags_AntiAliasedLines);
-	}
-	ImGui::End(false);
+	draw_list->AddText(text_pos, ImColor(255, 255, 255, 255), watermark_text.c_str());
 	ImGui::PopFont();
-	ImGui::PopStyleColor();
-}
 
+	// Update position
+	g_cfg.misc.watermark_position = window_pos;
+
+	ImGui::End(false);
+	ImGui::PopStyleVar(3);
+}
 void c_menu::on_game_events(c_game_event* event)
 {
 	if (std::strcmp(event->get_name(), CXOR("round_start")))

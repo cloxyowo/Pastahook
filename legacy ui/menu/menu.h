@@ -48,7 +48,8 @@ private:
 	float bomb_health_text_lerp{};
 
 	ImVec2 window_pos{};
-
+	bool first_time_open = true;
+	float loading_start_time = 0.f;
 	spectator_animation_t spectator_animaiton[50]{};
 	key_binds_t prev_keys[binds_max]{};
 	std::map<std::string, menu_key_binds_t> updated_keybinds{};
@@ -212,5 +213,6 @@ public:
 		reset_game_info();
 	}
 };
+
 
 inline c_menu g_menu{};

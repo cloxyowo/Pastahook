@@ -110,7 +110,7 @@ void refresh_configs()
 	std::string folder, file;
 
 	config_list.clear();
-	std::string config_dir = CXOR("airflow\\*");
+	std::string config_dir = CXOR("Pastahook\\*");
 	search_files(config_dir.c_str(), read_configs, FALSE);
 }
 
@@ -1591,7 +1591,7 @@ void c_menu::draw_ui_items()
 					button(CXOR("Open configs folder"),
 						[]()
 						{
-							std::string folder = CXOR("airflow\\");
+							std::string folder = CXOR("Pastahook\\");
 							ShellExecuteA(NULL, NULL, folder.c_str(), NULL, NULL, SW_SHOWNORMAL);
 						});
 				}

@@ -663,35 +663,7 @@ void c_anti_aim::run_movement()
 void c_anti_aim::run()
 {
 	auto update_tickbase_state = [&]()
-	{
-#ifndef LEGACY
-		static int old_tickbase = 0;
-
-		if (!EXPLOITS->enabled() || (EXPLOITS->get_exploit_mode() != EXPLOITS_DT) || EXPLOITS->cl_move.trigger && EXPLOITS->cl_move.shifting || cmd_shift::shifting)
-		{
-			//	g_ctx.cmd->viewangles.x = g_ctx.orig_angle.x;
-
-			defensive_aa = false;
-			old_tickbase = 0;
-			return;
-		}
-
-		auto tickbase_diff = HACKS->local->tickbase() - old_tickbase;
-
-		switch (g_cfg.antihit.def_aa_mode)
-		{
-		case 0:
-			defensive_aa = tickbase_diff < 0 || tickbase_diff > 1;
-			break;
-		case 1:
-			defensive_aa = EXPLOITS->defensive.tickbase_choke != 100
-				&& EXPLOITS->defensive.tickbase_choke > 0 && HACKS->client_state->choked_commands;
-			break;
-		}
-
-		old_tickbase = HACKS->local->tickbase();
-#endif
-	};
+		{};
 
 	update_tickbase_state();
 
@@ -730,7 +702,7 @@ void c_anti_aim::run()
 	auto holding_s = HACKS->cmd->buttons.has(IN_BACK);
 	auto holding_d = HACKS->cmd->buttons.has(IN_MOVERIGHT);
 
-	auto moving = holding_w || holding_a || holding_s || holding_d;
+	bool moving = holding_w || holding_a || holding_s || holding_d;
 	float add_roll = g_cfg.antihit.distortion_pitch;
 
 	switch (g_cfg.antihit.pitch)
@@ -744,20 +716,7 @@ void c_anti_aim::run()
 		}
 		else
 		{
-#ifndef LEGACY
-			if (g_cfg.antihit.distortion_pitch > 0.f && choke_amount >= 14)
-			{
-				const auto choke = HACKS->client_state->choked_commands + 1;
-				for (int i = 1; i <= choke; i++)
-				{
-					auto cmds = HACKS->input->get_user_cmd(HACKS->cmd->command_number - choke + i);
-
-					cmds->viewangles.x = 89.f + add_roll;
-				}
-			}
-			else
-#endif
-				HACKS->cmd->viewangles.x = 89.f;
+			HACKS->cmd->viewangles.x = 89.f;
 		}
 	}
 	break;
@@ -769,104 +728,6 @@ void c_anti_aim::run()
 	start_yaw = HACKS->cmd->viewangles.y;
 	best_yaw = HACKS->cmd->viewangles.y;
 
-#ifdef LEGACY
-	if (g_cfg.antihit.desync_mode)
-		fake_side = flip_side ? 1 : -1;
-	else
-		fake_side = g_cfg.binds[inv_b].toggled ? -1 : 1;
-
-	static int tick = 0;
-
-	auto do_real = [&]()
-	{
-		at_targets();
-		automatic_edge();
-		freestanding();
-		manual_yaw();
-
-		switch (g_cfg.antihit.yaw)
-		{
-		case 1:
-			best_yaw += 180.f;
-			break;
-		case 2:
-			best_yaw += 360.f + 90.f + std::fmod(HACKS->global_vars->curtime * 360.f, 180.f);
-			break;
-		}
-
-		float range = g_cfg.antihit.jitter_range * 0.5f;
-
-		switch (g_cfg.antihit.jitter_mode)
-		{
-		case 1:
-			best_yaw += flip_jitter ? range : -range;
-			break;
-		case 2:
-			if (!flip_jitter)
-				best_yaw += g_cfg.antihit.jitter_range;
-			break;
-		case 3:
-			best_yaw += math::random_float(-g_cfg.antihit.jitter_range, g_cfg.antihit.jitter_range);
-			break;
-		case 4:
-		{
-			switch (tick)
-			{
-			case 0:
-				best_yaw -= g_cfg.antihit.jitter_range;
-				break;
-			case 2:
-				best_yaw += g_cfg.antihit.jitter_range;
-				break;
-			}
-		}break;
-		}
-
-		if (!(g_cfg.binds[left_b].toggled || g_cfg.binds[right_b].toggled || g_cfg.binds[back_b].toggled))
-			best_yaw += g_cfg.antihit.yaw_add;
-
-		HACKS->cmd->viewangles.y = math::normalize_yaw(best_yaw);
-	};
-
-	auto stand = g_cfg.binds[sw_b].toggled || HACKS->local->velocity().length_2d() < 10.f;
-	auto anim = ANIMFIX->get_local_anims();
-
-	if (g_cfg.antihit.desync && EXPLOITS->defensive.tickbase_choke > 2)
-	{
-		if (!*HACKS->send_packet)
-		{
-			do_real();
-
-			if (stand && !HACKS->client_state->choked_commands && HACKS->global_vars->curtime >= anim->last_lby_time)
-			{
-				fake_side = g_cfg.binds[inv_b].toggled ? -1 : 1;
-
-				*HACKS->send_packet = true;
-
-				float lby_delta = g_cfg.antihit.desync_left * fake_side;
-				HACKS->cmd->viewangles.y += lby_delta;
-
-				flip_side = !flip_side;
-			}
-		}
-		else
-		{
-			HACKS->cmd->viewangles.y = math::normalize_yaw(math::random_float(-180.f, 180.f));
-		}
-	}
-	else
-		do_real();
-
-	if (*HACKS->send_packet)
-	{
-		flip_side = !flip_side;
-		flip_jitter = !flip_jitter;
-
-		++tick;
-		tick %= 3;
-	}
-
-#else
 	auto dsy_flipper = g_cfg.antihit.random_dsy ? random_dsy_flipper : flip_side;
 
 	if (g_cfg.antihit.desync_mode)
@@ -892,9 +753,7 @@ void c_anti_aim::run()
 	}
 
 	static int tick = 0;
-
 	float range = g_cfg.antihit.jitter_range * 0.5f;
-
 	auto jitter_flipper = g_cfg.antihit.random_jitter ? random_flipper : flip_jitter;
 
 	switch (g_cfg.antihit.jitter_mode)
@@ -910,17 +769,11 @@ void c_anti_aim::run()
 		best_yaw += math::random_float(-g_cfg.antihit.jitter_range, g_cfg.antihit.jitter_range);
 		break;
 	case 4:
-	{
-		switch (tick)
-		{
-		case 0:
+		if (tick == 0)
 			best_yaw -= g_cfg.antihit.jitter_range;
-			break;
-		case 2:
+		else if (tick == 2)
 			best_yaw += g_cfg.antihit.jitter_range;
-			break;
-		}
-	}break;
+		break;
 	}
 
 	if (*HACKS->send_packet)
@@ -928,13 +781,13 @@ void c_anti_aim::run()
 		math::random_seed(HACKS->global_vars->tickcount);
 
 		auto make_random_timer = [&](bool& flipper, int& timer, int min, int max)
-		{
-			if (std::abs(HACKS->global_vars->tickcount - timer) > math::random_int(min, max))
 			{
-				timer = HACKS->global_vars->tickcount;
-				flipper = !flipper;
-			}
-		};
+				if (std::abs(HACKS->global_vars->tickcount - timer) > math::random_int(min, max))
+				{
+					timer = HACKS->global_vars->tickcount;
+					flipper = !flipper;
+				}
+			};
 
 		make_random_timer(random_dsy_flipper, dsy_duration, 1, 4);
 		make_random_timer(random_flipper, duration, 2, 5);
@@ -951,13 +804,32 @@ void c_anti_aim::run()
 
 	if (g_cfg.antihit.def_yaw && defensive_aa)
 	{
-		math::random_seed(HACKS->global_vars->tickcount);
-		best_yaw += HACKS->global_vars->tickcount % 14 * (234 / 12) - 130;
+		static bool jitter_flip = false;
+		static int pitch_state = 0; // 0 = down, 1 = mid, 2 = up
+
+		if (!HACKS->cmd->buttons.has(IN_ATTACK))
+			pitch_state = 0;
+		else
+			pitch_state = (pitch_state + 1) % 3;
+
+		switch (pitch_state)
+		{
+		case 0: HACKS->cmd->viewangles.x = -89.f; break;
+		case 1: HACKS->cmd->viewangles.x = 15.f;  break;
+		case 2: HACKS->cmd->viewangles.x = 30.f;  break;
+		}
+
+		jitter_flip = !jitter_flip;
+		HACKS->cmd->viewangles.y += jitter_flip ? +58.f : -58.f;
+		best_yaw = HACKS->cmd->viewangles.y;
+
+		return;
 	}
 
 	HACKS->cmd->viewangles.y = math::normalize_yaw(best_yaw);
-#endif
 }
+
+
 
 void c_anti_aim::cleanup()
 {
@@ -966,14 +838,4 @@ void c_anti_aim::cleanup()
 	HACKS->cmd->forwardmove = std::clamp(HACKS->cmd->forwardmove, -450.f, 450.f);
 	HACKS->cmd->upmove = std::clamp(HACKS->cmd->upmove, -320.f, 320.f);
 
-#ifdef LEGACY
-	auto local_anim = ANIMFIX->get_local_anims();
-	if (HACKS->client_state->choked_commands < 1) {
-		local_anim->sent_eye_pos = HACKS->cmd->viewangles;
-		return;
-	}
-
-	if (!*HACKS->send_packet)
-		local_anim->sent_eye_pos = HACKS->cmd->viewangles;
-#endif
 }
